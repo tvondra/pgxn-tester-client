@@ -66,10 +66,13 @@ def get_data(host, uri, retries=3, delay=20):
 def get_uri_templates(host, prefix):
 	'''returns URI templates (JSON dictionary)'''
 
+	tmp = {}
 	templates = get_data(host, prefix)
-	templates = {k : (prefix+templates[k]) for k in templates}
 
-	return templates
+	for k in templates:
+		tmp.update({k : (prefix+templates[k])})
+
+	return tmp
 
 
 def get_distributions(host, templates):
