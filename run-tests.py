@@ -297,22 +297,6 @@ if __name__ == '__main__':
 	# do this in try/except block, so that we can stop the cluster in case of failure
 	try:
 
-		# create and start a PostgreSQL cluster
-		cluster = PgCluster(datadir=args.datadir, logdir=args.logdir)
-
-		# output from pg_config (as a dictionary)
-		pginfo = cluster.info()
-
-		# get the version number only
-		# FIXME this default is wrong
-		pgversion = SemVer('9.4.0')
-		try:
-			pgversion = SemVer((pginfo['VERSION'].split(' '))[1])
-		except:
-			pass
-
-		logging.info("PostgreSQL cluster started, version = %(version)s" % {'version' : pgversion})
-
 		# now get URI templates (this should query actual packages)
 		templates = get_uri_templates(api_host, api_prefix)
 
@@ -342,33 +326,57 @@ if __name__ == '__main__':
 				# get package prerequisities (extracted from META.json by the server)
 				prereqs = version['prereqs']
 
-				# run the build only if the prerequisities are OK
-				if check_prerequisities(pgversion, prereqs):
+				cluster = None
 
-					# run the actual test
-					result = test_release(dist['name'], version['version'], version['status'], logdir=args.logdir)
+				try:
 
-					# additional info, and a random UUID for the result (we're generating it here as a protection against simple replay attacks)
-					result.update({'uuid' : str(uuid.uuid4()), 'machine' : args.name, 'config' : json.dumps(pginfo), 'env' : json.dumps({})})
+					# create and start a PostgreSQL cluster
+					cluster = PgCluster(datadir=args.datadir, logdir=args.logdir)
 
-					# sign the request with the shared secret
-					result = sign_request(result, args.secret)
+					# output from pg_config (as a dictionary)
+					pginfo = cluster.info()
 
-					# do the POST request (if OK, status is 200)
-					(status, reason) = post_results(api_host, templates, result)
+					# get the version number only
+					# FIXME this default is wrong
+					pgversion = SemVer('9.4.0')
+					try:
+						pgversion = SemVer((pginfo['VERSION'].split(' '))[1])
+					except:
+						pass
 
-					if (status == 200):
-						logging.info("POST OK : UUID='%(uuid)s' install=%(install)s load=%(load)s check=%(check)s" % {'uuid' : reason['uuid'], 'install' : result['install'], 'load' : result['load'], 'check' : result['check']})
+					logging.info("PostgreSQL cluster started, version = %(version)s" % {'version' : pgversion})
+
+					# run the build only if the prerequisities are OK
+					if check_prerequisities(pgversion, prereqs):
+
+						# run the actual test
+						result = test_release(dist['name'], version['version'], version['status'], logdir=args.logdir)
+
+						# additional info, and a random UUID for the result (we're generating it here as a protection against simple replay attacks)
+						result.update({'uuid' : str(uuid.uuid4()), 'machine' : args.name, 'config' : json.dumps(pginfo), 'env' : json.dumps({})})
+
+						# sign the request with the shared secret
+						result = sign_request(result, args.secret)
+
+						# do the POST request (if OK, status is 200)
+						(status, reason) = post_results(api_host, templates, result)
+
+						if (status == 200):
+							logging.info("POST OK : UUID='%(uuid)s' install=%(install)s load=%(load)s check=%(check)s" % {'uuid' : reason['uuid'], 'install' : result['install'], 'load' : result['load'], 'check' : result['check']})
+						else:
+							logging.error(reason)
+							logging.error("POST for %(dist)s-%(version)s failed (status = %(status)d)" % {'dist' : dist['name'], 'version' : version['version'], 'status' : status})
+
 					else:
-						logging.error(reason)
-						logging.error("POST for %(dist)s-%(version)s failed (status = %(status)d)" % {'dist' : dist['name'], 'version' : version['version'], 'status' : status})
 
-				else:
+						logging.info("%(dist)s-%(version)s skipped - unmet PostgreSQL version (current %(pgversion)s, needs %(prereqs)s)" % {'dist' : dist['name'], 'version' : version['version'], 'prereqs' : prereqs, 'pgversion' : pgversion})
 
-					logging.info("%(dist)s-%(version)s skipped - unmet PostgreSQL version (current %(pgversion)s, needs %(prereqs)s)" % {'dist' : dist['name'], 'version' : version['version'], 'prereqs' : prereqs, 'pgversion' : pgversion})
+				finally:
 
-	finally:
+					# stop the PostgreSQL cluster and remove the data directory
+					if cluster:
+						logging.info("removing DATA directory")
+						cluster.terminate()
 
-		# stop the PostgreSQL cluster and remove the data directory
-		if cluster:
-			cluster.terminate()
+	except Exception as ex:
+		logging.info("testing failed: %(msg)s" % {'msg' : str(ex)})
