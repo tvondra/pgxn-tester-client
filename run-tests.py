@@ -83,6 +83,9 @@ def parse_cmdline():
 	parser.add_argument('--api', dest='api', default='api.pgxn-tester.org', help='API URI (default: api.pgxn-tester.org).')
 	parser.add_argument('--debug', dest='debug', action='store_true', default=False, help='debug output (default: false)')
 
+	parser.add_argument('--distribution', dest='distribution', default=None, help='distribution to test')
+	parser.add_argument('--version', dest='version', default=None, help='version to test (only with distribution)')
+
 	parser.add_argument('--name', dest='name', required=True, help='machine name')
 	parser.add_argument('--secret', dest='secret', required=True, help='secret key')
 
@@ -364,6 +367,10 @@ if __name__ == '__main__':
 		# loop through the distributions
 		for dist in distributions:
 
+			# if distribution supplied (and does not match, skip)
+			if args.distribution is not None and args.distribution != dist['name']:
+				continue
+
 			# get versions for the distribution
 			info = get_distribution_versions(api_host, templates, dist['name'])
 
@@ -376,6 +383,10 @@ if __name__ == '__main__':
 
 			# loop through versions of this distribution
 			for version in info['versions']:
+
+				# if version supplied (and does not match, skip)
+				if (args.distribution is not None) and (args.version is not None) and (args.version != version['version']):
+					continue
 
 				logging.info("testing '%(name)s-%(version)s' (%(status)s)" % {'name' : dist['name'], 'version' : version['version'], 'status' : version['status']})
 
