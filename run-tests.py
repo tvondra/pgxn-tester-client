@@ -12,6 +12,7 @@ import time
 import uuid
 import StringIO
 import codecs
+import base64
 
 from pgxnclient import Spec
 from pgxnclient.utils.semver import SemVer
@@ -214,7 +215,7 @@ def run_command(command, log_fname):
 		r = subprocess.call(command, stdout=logfile, stderr=logfile)
 		duration = int(1000 * (time.time() - start_time))
 
-	with open(log_fname, 'r') as logfile:
+	with codecs.open(log_fname, 'r', encoding='utf-8') as logfile:
 		log = logfile.read()
 
 	return (r, log, duration)
@@ -425,6 +426,12 @@ if __name__ == '__main__':
 
 						# additional info, and a random UUID for the result (we're generating it here as a protection against simple replay attacks)
 						result.update({'uuid' : str(uuid.uuid4()), 'machine' : args.name, 'config' : json.dumps(pginfo), 'env' : json.dumps({})})
+
+						# there has to be a better way ... but well, this seems to work for now
+						result['install_log'] = base64.b64encode(result['install_log'].encode('utf-8'))
+						result['load_log'] = base64.b64encode(result['load_log'].encode('utf-8'))
+						result['check_log'] = base64.b64encode(result['check_log'].encode('utf-8'))
+						result['check_diff'] = base64.b64encode(result['check_diff'].encode('utf-8'))
 
 						# sign the request with the shared secret
 						result = sign_request(result, args.secret)
