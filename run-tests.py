@@ -235,7 +235,7 @@ def test_release(release, version, state, logdir):
 
 	(r, logtext, duration) = run_command(['pgxnclient', 'install', state_opt, '%(release)s=%(version)s' % {'release' : release, 'version' : version}], log_fname)
 
-	result['install_log'] = logtext
+	result['install_log'] = logtext.encode('utf-8')
 	result['install_duration'] = duration
 
 	if r != 0:
@@ -250,7 +250,7 @@ def test_release(release, version, state, logdir):
 
 	(r, logtext, duration) = run_command(['pgxnclient', 'load', '-d', 'pgxntest', state_opt, '--yes', '%(release)s=%(version)s' % {'release' : release, 'version' : version}], log_fname)
 
-	result['load_log'] = logtext
+	result['load_log'] = logtext.encode('utf-8')
 	result['load_duration'] = duration
 
 	if r != 0:
@@ -272,7 +272,7 @@ def test_release(release, version, state, logdir):
 	# we're done, stop the timer
 	killer.stop()
 
-	result['check_log'] = logtext
+	result['check_log'] = logtext.encode('utf-8')
 	result['check_duration'] = duration
 
 	# check may fail for various reasons - there may be no 'installcheck' rule in makefile (then it's futile to search for
@@ -287,7 +287,7 @@ def test_release(release, version, state, logdir):
 			res = re.search('"([^"]*.diffs)"', result['check_log'])
 			if res:
 				with open(res.group(1), 'r') as diff:
-					result['check_diff'] = diff.read()
+					result['check_diff'] = diff.read().encode('utf-8')
 
 			result['check'] = 'error'
 			return result
