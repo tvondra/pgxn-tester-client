@@ -383,26 +383,30 @@ if __name__ == '__main__':
 
 				cluster = None
 
+				# only create the wrapper, so that we can call pg_config (to get the version - don't do inidb/start)
+				cluster = PgCluster(datadir=args.datadir, logdir=args.logdir)
+
+				# output from pg_config (as a dictionary)
+				pginfo = cluster.info()
+
+				# get the version number only
+				# FIXME this default is wrong
+				pgversion = SemVer('9.4.0')
 				try:
+					pgversion = SemVer((pginfo['VERSION'].split(' '))[1])
+				except:
+					pass
 
-					# create and start a PostgreSQL cluster
-					cluster = PgCluster(datadir=args.datadir, logdir=args.logdir)
 
-					# output from pg_config (as a dictionary)
-					pginfo = cluster.info()
+				# run the build only if the prerequisities are OK
+				if check_prerequisities(pgversion, prereqs):
 
-					# get the version number only
-					# FIXME this default is wrong
-					pgversion = SemVer('9.4.0')
 					try:
-						pgversion = SemVer((pginfo['VERSION'].split(' '))[1])
-					except:
-						pass
 
-					logging.info("PostgreSQL cluster started, version = %(version)s" % {'version' : pgversion})
+						# start the cluster and do the testing
+						cluster.start()
 
-					# run the build only if the prerequisities are OK
-					if check_prerequisities(pgversion, prereqs):
+						logging.info("PostgreSQL cluster started, version = %(version)s" % {'version' : pgversion})
 
 						# run the actual test
 						result = test_release(dist['name'], version['version'], version['status'], logdir=args.logdir)
@@ -422,16 +426,17 @@ if __name__ == '__main__':
 							logging.error(reason)
 							logging.error("POST for %(dist)s-%(version)s failed (status = %(status)d)" % {'dist' : dist['name'], 'version' : version['version'], 'status' : status})
 
-					else:
+					finally:
 
-						logging.info("%(dist)s-%(version)s skipped - unmet PostgreSQL version (current %(pgversion)s, needs %(prereqs)s)" % {'dist' : dist['name'], 'version' : version['version'], 'prereqs' : prereqs, 'pgversion' : pgversion})
+						# stop the PostgreSQL cluster and remove the data directory
+						if cluster:
+							logging.info("removing DATA directory")
+							cluster.terminate()
 
-				finally:
+				else:
 
-					# stop the PostgreSQL cluster and remove the data directory
-					if cluster:
-						logging.info("removing DATA directory")
-						cluster.terminate()
+					logging.info("%(dist)s-%(version)s skipped - unmet PostgreSQL version (current %(pgversion)s, needs %(prereqs)s)" % {'dist' : dist['name'], 'version' : version['version'], 'prereqs' : prereqs, 'pgversion' : pgversion})
+
 
 	except Exception as ex:
 		logging.info("testing failed: %(msg)s" % {'msg' : str(ex)})

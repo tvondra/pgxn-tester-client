@@ -23,10 +23,6 @@ class PgCluster(object):
 		if os.path.exists(datadir):
 			raise PgClusterException("data directory '%(dir)s' already exists" % {'dir' : datadir})
 
-		# ok, initialize and start the cluster
-		self._initdb()
-		self._start()
-
 	def _initdb(self):
 		'initializes the PostgreSQL cluster, in the selected data directory (may fail for various reasons - e.g. existing directory, ...)'
 
@@ -41,8 +37,10 @@ class PgCluster(object):
 
 		logging.info("cluster initialized OK")
 
-	def _start(self):
+	def start(self):
 		''
+		# initdb of the cluster
+		self._initdb()
 
 		logging.info("starting cluster in '%(data)s' ..." % {'data' : self._data})
 
