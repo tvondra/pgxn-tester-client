@@ -115,13 +115,12 @@ def get_data(host, uri, retries=3, delay=20):
 def get_uri_templates(host, prefix):
 	'''returns URI templates (JSON dictionary)'''
 
-	tmp = {}
 	templates = get_data(host, prefix)
 
 	for k in templates:
-		tmp.update({k : (prefix+templates[k])})
+		templates[k] = (prefix+templates[k])
 
-	return tmp
+	return templates
 
 
 def get_distributions(host, templates):
@@ -159,7 +158,7 @@ def post_results(host, templates, results, retries=3, delay=20):
 
 	try:
 		logging.error("attempt to submit results failed: %(request)s" % {'request' : json.dumps(results, indent=True)})
-	except:
+	except Exception as ex:
 		# it might have failed for utf8 issues or whatever, so log the results as text
 		logging.error("attempt to submit results failed: %(request)s" % {'request' : results})
 		logging.error("can't log the results as JSON: %(msg)s" % {'msg' : str(ex)})
