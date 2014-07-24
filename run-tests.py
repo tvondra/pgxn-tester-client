@@ -22,6 +22,55 @@ sys.path.append('libs')
 
 from pgcluster import PgCluster
 from utils import sign_request
+ 
+import threading
+import time
+
+
+class TimeoutKiller(threading.Thread):
+	
+	def __init__(self, timeout=300):
+		super(TimeoutKiller, self).__init__()
+		self._lock = threading.Lock()
+		self._stop = False
+		self._timeout = 300
+		self._start = time.time()
+
+	def stopped(self):
+		'checks state of the _stop flag (with proper locking to get the last value)'
+
+		self._lock.acquire()
+		stopped = (self._stop)
+		self._lock.release()
+
+		return stopped
+
+	def stop(self):
+		'ask the thread to stop (with proper locking to make sure the thread sees the new value)'
+
+		self._lock.acquire()
+		self._stop = True
+		self._lock.release()
+
+	def run(self):
+
+		# repeat until we get 'stop' request from the parent process, or 
+		while (not self.stopped()):
+
+			# sleep for a second (to re-evaluate the stop variable)
+			time.sleep(1)
+
+			# we've exceeded the timeout, let's kill 'em all
+			if (time.time() - self._start) > self._timeout:
+
+				logging.warning("check timed out, killing all remaining postgres processes ...")
+
+				# find all 'postgres' processes and murder them with 'kill -9'
+				subprocess.call(['killall', '-9', 'postgres'], stdout=open('/dev/null', 'w'), stderr=open('/dev/null', 'w'))
+
+				# we did what we had to do, so end the thread
+				return
+
 
 def parse_cmdline():
 	'''command-line parameter parser'''
@@ -213,9 +262,16 @@ def test_release(release, version, state, logdir):
 
 	# CHECK (installcheck)
 
+	# we need to protect this because of excessively long / hanging checks
+	killer = TimeoutKiller()
+	killer.start()
+
 	log_fname = '%(dir)s/%(release)s-%(version)s-check.log' % {'dir' : logdir, 'release' : release, 'version' : version}
 
 	(r, logtext, duration) = run_command(['pgxnclient', 'check', state_opt, '%(release)s=%(version)s' % {'release' : release, 'version' : version}], log_fname)
+
+	# we're done, stop the timer
+	killer.stop()
 
 	result['check_log'] = logtext
 	result['check_duration'] = duration
