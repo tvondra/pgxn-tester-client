@@ -13,6 +13,7 @@ import uuid
 import StringIO
 import codecs
 import base64
+import psutil
 
 from pgxnclient import Spec
 from pgxnclient.utils.semver import SemVer
@@ -65,6 +66,10 @@ class TimeoutKiller(threading.Thread):
 			# we've exceeded the timeout, let's kill 'em all
 			if (time.time() - self._start) > self._timeout:
 
+				logging.warning("timeout expired, printing backtraces ...")
+
+				self._print_bt()
+
 				logging.warning("check timed out, killing all remaining postgres processes ...")
 
 				# find all 'postgres' processes and murder them with 'kill -9'
@@ -72,6 +77,21 @@ class TimeoutKiller(threading.Thread):
 
 				# we did what we had to do, so end the thread
 				return
+
+	def _print_bt(self):
+
+		# find all postgres processes, run gdb on them
+		for p in psutil.process_iter():
+			if p.name() == 'postgres':
+
+				print "process pid=",str(p.pid),"cmdline=",str(p.cmdline()),"meminfo",p.memory_info(),"fds=",p.num_fds()
+
+				with open('gdb.log', 'w') as tmp_file:
+					subprocess.call(['gdb', '-p', str(p.pid), '-ex', 'bt', '--batch'], stdout=tmp_file, stderr=tmp_file)
+
+				with open('gdb.log', 'r') as tmp_file:
+					print "===== back trace ====="
+					print tmp_file.read()
 
 
 def parse_cmdline():
