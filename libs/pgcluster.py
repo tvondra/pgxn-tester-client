@@ -39,6 +39,7 @@ class PgCluster(object):
 
 	def start(self):
 		''
+
 		# initdb of the cluster
 		self._initdb()
 
@@ -67,7 +68,11 @@ class PgCluster(object):
 		logging.info("cluster stopped OK")
 
 	def terminate(self, remove=True):
-		self._stop()
+
+		try:
+			self._stop()
+		except:
+			logging.error("pg_ctl STOP failed")
 
 		if remove:
 			logging.info("removing cluster data directory '%(dir)s'" % {'dir' : self._data})
