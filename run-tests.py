@@ -465,6 +465,11 @@ if __name__ == '__main__':
 							logging.error(reason)
 							logging.error("POST for %(dist)s-%(version)s failed (status = %(status)d)" % {'dist' : dist['name'], 'version' : version['version'], 'status' : status})
 
+					except Exception as ex:
+
+						logging.info("testing failed: %(msg)s" % {'msg' : str(ex)})
+						logging.exception(eX)
+
 					finally:
 
 						# stop the PostgreSQL cluster and remove the data directory
@@ -479,3 +484,4 @@ if __name__ == '__main__':
 
 	except Exception as ex:
 		logging.info("testing failed: %(msg)s" % {'msg' : str(ex)})
+		logging.exception(eX)
