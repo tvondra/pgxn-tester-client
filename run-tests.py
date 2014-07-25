@@ -484,4 +484,4 @@ if __name__ == '__main__':
 
 	except Exception as ex:
 		logging.info("testing failed: %(msg)s" % {'msg' : str(ex)})
-		logging.exception(eX)
+		logging.exception(ex)
