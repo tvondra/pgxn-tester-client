@@ -228,6 +228,15 @@ def check_prerequisities(pgversion, prereqs):
 
 	return True
 
+def already_tested_on(host, templates, machine, pgversion, distribution, version):
+	'checks whether the distribution/version was already tested on this machine'
+
+	uri = templates['results'] + '?' + '&'.join(['machine=' + machine, 'pg_version=' + pgversion, 'distribution=' + distribution, 'version=' + version])
+	results = get_data(host, uri)
+
+	# if at least one result returned, then already tested
+	return (len(results) != 0)
+
 def run_command(command, log_fname):
 
 	with open(log_fname, 'w') as logfile:
@@ -425,11 +434,16 @@ if __name__ == '__main__':
 				# get the version number only
 				# FIXME this default is wrong
 				pgversion = SemVer('9.4.0')
+				pgversion_raw = (pginfo['VERSION'].split(' '))[1]
 				try:
-					pgversion = SemVer((pginfo['VERSION'].split(' '))[1])
+					pgversion = SemVer(pgversion_raw)
 				except:
 					pass
 
+				# see if this version was already tested on this machine / postgresql version, and if yes then skip it
+				if already_tested_on(api_host, templates, machine=args.name, pgversion=pgversion_raw, distribution=dist['name'], version=version['version']):
+					logging.info("skipping '%(name)s-%(version)s' (%(status)s) - already tested" % {'name' : dist['name'], 'version' : version['version'], 'status' : version['status']})
+					continue
 
 				# run the build only if the prerequisities are OK
 				if check_prerequisities(pgversion, prereqs):
