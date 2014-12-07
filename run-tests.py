@@ -262,6 +262,7 @@ def test_release(release, version, state, logdir):
 	with open(log_fname, 'w') as logfile:
 		r = subprocess.call(['dropdb', 'pgxntest'], stdout=logfile, stderr=logfile)
 		r = subprocess.call(['createdb', 'pgxntest'], stdout=logfile, stderr=logfile)
+		r = subprocess.call(['createuser', '-s', 'postgres'], stdout=logfile, stderr=logfile)
 
 	# INSTALL
 
@@ -282,7 +283,7 @@ def test_release(release, version, state, logdir):
 
 	log_fname = '%(dir)s/%(release)s-%(version)s-load.log' % {'dir' : logdir, 'release' : release, 'version' : version}
 
-	(r, logtext, duration) = run_command(['pgxnclient', 'load', '-d', 'pgxntest', state_opt, '--yes', '%(release)s=%(version)s' % {'release' : release, 'version' : version}], log_fname)
+	(r, logtext, duration) = run_command(['pgxnclient', 'load', '-U', 'postgres', '-d', 'pgxntest', state_opt, '--yes', '%(release)s=%(version)s' % {'release' : release, 'version' : version}], log_fname)
 
 	result['load_log'] = logtext
 	result['load_duration'] = duration
@@ -301,7 +302,7 @@ def test_release(release, version, state, logdir):
 
 	log_fname = '%(dir)s/%(release)s-%(version)s-check.log' % {'dir' : logdir, 'release' : release, 'version' : version}
 
-	(r, logtext, duration) = run_command(['pgxnclient', 'check', state_opt, '%(release)s=%(version)s' % {'release' : release, 'version' : version}], log_fname)
+	(r, logtext, duration) = run_command(['pgxnclient', 'check', '-U', 'postgres', state_opt, '%(release)s=%(version)s' % {'release' : release, 'version' : version}], log_fname)
 
 	# we're done, stop the timer
 	killer.stop()
