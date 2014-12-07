@@ -263,6 +263,7 @@ def test_release(release, version, state, logdir):
 		r = subprocess.call(['dropdb', 'pgxntest'], stdout=logfile, stderr=logfile)
 		r = subprocess.call(['createdb', 'pgxntest'], stdout=logfile, stderr=logfile)
 		r = subprocess.call(['createuser', '-s', 'postgres'], stdout=logfile, stderr=logfile)
+		r = subprocess.call(['createlang', 'plpgsql', 'pgxntest'], stdout=logfile, stderr=logfile)
 
 	# INSTALL
 
