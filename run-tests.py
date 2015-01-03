@@ -232,6 +232,7 @@ def already_tested_on(host, templates, machine, pgversion, distribution, version
 	'checks whether the distribution/version was already tested on this machine'
 
 	uri = templates['results'] + '?' + '&'.join(['machine=' + machine, 'pg_version=' + pgversion, 'distribution=' + distribution, 'version=' + version])
+
 	results = get_data(host, uri)
 
 	# if at least one result returned, then already tested
@@ -321,8 +322,14 @@ def test_release(release, version, state, logdir):
 			# find the diff file
 			res = re.search('"([^"]*.diffs)"', result['check_log'])
 			if res:
-				with codecs.open(res.group(1), 'r', encoding='utf-8') as diff:
-					result['check_diff'] = diff.read()
+				try:
+					with codecs.open(res.group(1), 'r', encoding='utf-8') as diff:
+						result['check_diff'] = diff.read()
+				except UnicodeDecodeError as ex:
+					# unicode did not work, let's try 'ascii'
+					with codecs.open(res.group(1), 'r') as diff:
+						result['check_diff'] = diff.read()
+					result['check_diff'] += "\nERROR: " + str(ex)
 
 			result['check'] = 'error'
 			return result
@@ -365,6 +372,9 @@ def init_logging(debug=False):
 		level=logging.DEBUG
 
 	logging.basicConfig(level=level, format='%(asctime)-15s %(levelname)s %(message)s')
+
+def encode_data(data):
+	return base64.b64encode(data.decode('utf-8', 'ignore').encode('utf-8', 'ignore'))
 
 if __name__ == '__main__':
 
