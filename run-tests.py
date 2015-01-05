@@ -148,17 +148,17 @@ def get_uri_templates(host, prefix):
 	return templates
 
 
-def get_distributions(host, templates):
+def get_distributions(host, templates, machine, pgversion):
 	'''returns list of distributions (packages)'''
 
-	uri = templates['distributions']
+	uri = templates['queue'].replace('{name}', machine).replace('{version}', pgversion)
 	return get_data(host, uri)
 
 
-def get_distribution_versions(host, templates, dist):
+def get_distribution_version(host, templates, dist, version):
 	'''returns list of versions for the given distribution'''
 
-	uri = (templates['distribution'].replace('{name}', dist))
+	uri = (templates['version'].replace('{name}', dist)).replace('{version}', version)
 	return get_data(host, uri)
 
 
@@ -376,6 +376,26 @@ def init_logging(debug=False):
 def encode_data(data):
 	return base64.b64encode(data.decode('utf-8', 'ignore').encode('utf-8', 'ignore'))
 
+
+def get_pg_version(datadir, logdir, default_version = '9.4.0'):
+
+	# only create the wrapper, so that we can call pg_config (to get the version - don't do inidb/start)
+	cluster = PgCluster(datadir=args.datadir, logdir=args.logdir)
+
+	# output from pg_config (as a dictionary)
+	pginfo = cluster.info()
+
+	# get the version number only
+	pgversion = SemVer(default_version)
+	pgversion_raw = (pginfo['VERSION'].split(' '))[1]
+	try:
+		pgversion = SemVer(pgversion_raw)
+	except:
+		pass
+
+	return (pgversion_raw, pgversion, pginfo)
+
+
 if __name__ == '__main__':
 
 	cluster = None
@@ -400,111 +420,87 @@ if __name__ == '__main__':
 		# now get URI templates (this should query actual packages)
 		templates = get_uri_templates(api_host, api_prefix)
 
-		# get list of all distributions
-		distributions = get_distributions(api_host, templates)
+		# get version of the PostgreSQL cluster
+		(pgversion_raw, pgversion, pginfo) = get_pg_version(datadir=args.datadir, logdir=args.logdir)
 
-		logging.info("received list of %(len)d distributions to test" % {'len' : len(distributions)})
+		# get queue of all distribution versions for this machine
+		distributions = get_distributions(api_host, templates, args.name, pgversion)
+
+		logging.info("received list of %(len)d distributions to test on %(name)s" % {'len' : len(distributions), 'name' : args.name})
 
 		# loop through the distributions
 		for dist in distributions:
 
-			# if distribution supplied (and does not match, skip)
+			# check if testing only a specified distribution (supplied but not matching => skip to next)
 			if args.distribution is not None and args.distribution != dist['name']:
 				continue
 
-			# get versions for the distribution
-			info = get_distribution_versions(api_host, templates, dist['name'])
-
-			# ignore users with no releases
-			if (not info) or (not info['versions']):
-				log.warning("no versions for distribution '%(name)s' found" % {'name' : dist['name']})
+			# check if testing only a specified distribution version (supplied but not matching => skip to next)
+			if (args.distribution is not None) and (args.version is not None) and (args.version != dist['version']):
 				continue
 
-			logging.info("received %(len)d versions for '%(name)s' distribution" % {'len' : len(info['versions']), 'name' : dist['name']})
+			# get more details about the for the version
+			version = get_distribution_version(api_host, templates, dist['name'], dist['version'])
 
-			# loop through versions of this distribution
-			for version in info['versions']:
+			logging.info("testing '%(name)s-%(version)s' (%(status)s)" % {'name' : dist['name'], 'version' : version['version'], 'status' : version['status']})
 
-				# if version supplied (and does not match, skip)
-				if (args.distribution is not None) and (args.version is not None) and (args.version != version['version']):
-					continue
+			# see if this version was already tested on this machine / postgresql version, and if yes then skip it
+			if already_tested_on(api_host, templates, machine=args.name, pgversion=pgversion_raw, distribution=dist['name'], version=version['version']):
+				logging.info("skipping '%(name)s-%(version)s' (%(status)s) - already tested" % {'name' : dist['name'], 'version' : version['version'], 'status' : version['status']})
+				continue
 
-				logging.info("testing '%(name)s-%(version)s' (%(status)s)" % {'name' : dist['name'], 'version' : version['version'], 'status' : version['status']})
-
-				# get package prerequisities (extracted from META.json by the server)
-				prereqs = version['prereqs']
-
-				cluster = None
-
+			# run the build only if the prerequisities are OK
+			if check_prerequisities(pgversion, version['prereqs']):
+				
 				# only create the wrapper, so that we can call pg_config (to get the version - don't do inidb/start)
 				cluster = PgCluster(datadir=args.datadir, logdir=args.logdir)
 
-				# output from pg_config (as a dictionary)
-				pginfo = cluster.info()
-
-				# get the version number only
-				# FIXME this default is wrong
-				pgversion = SemVer('9.4.0')
-				pgversion_raw = (pginfo['VERSION'].split(' '))[1]
 				try:
-					pgversion = SemVer(pgversion_raw)
-				except:
-					pass
 
-				# see if this version was already tested on this machine / postgresql version, and if yes then skip it
-				if already_tested_on(api_host, templates, machine=args.name, pgversion=pgversion_raw, distribution=dist['name'], version=version['version']):
-					logging.info("skipping '%(name)s-%(version)s' (%(status)s) - already tested" % {'name' : dist['name'], 'version' : version['version'], 'status' : version['status']})
-					continue
+					# start the cluster and do the testing
+					cluster.start()
 
-				# run the build only if the prerequisities are OK
-				if check_prerequisities(pgversion, prereqs):
+					logging.info("PostgreSQL cluster started, version = %(version)s" % {'version' : pgversion})
 
-					try:
+					# run the actual test
+					result = test_release(dist['name'], version['version'], version['status'], logdir=args.logdir)
 
-						# start the cluster and do the testing
-						cluster.start()
+					# additional info, and a random UUID for the result (we're generating it here as a protection against simple replay attacks)
+					result.update({'uuid' : str(uuid.uuid4()), 'machine' : args.name, 'config' : json.dumps(pginfo), 'env' : json.dumps({})})
 
-						logging.info("PostgreSQL cluster started, version = %(version)s" % {'version' : pgversion})
+					# there has to be a better way ... but well, this seems to work for now
+					result['install_log'] = base64.b64encode(result['install_log'].encode('utf-8'))
+					result['load_log'] = base64.b64encode(result['load_log'].encode('utf-8'))
+					result['check_log'] = base64.b64encode(result['check_log'].encode('utf-8'))
+					result['check_diff'] = base64.b64encode(result['check_diff'].encode('utf-8'))
 
-						# run the actual test
-						result = test_release(dist['name'], version['version'], version['status'], logdir=args.logdir)
+					# sign the request with the shared secret
+					result = sign_request(result, args.secret)
 
-						# additional info, and a random UUID for the result (we're generating it here as a protection against simple replay attacks)
-						result.update({'uuid' : str(uuid.uuid4()), 'machine' : args.name, 'config' : json.dumps(pginfo), 'env' : json.dumps({})})
+					# do the POST request (if OK, status is 200)
+					(status, reason) = post_results(api_host, templates, result)
 
-						# there has to be a better way ... but well, this seems to work for now
-						result['install_log'] = base64.b64encode(result['install_log'].encode('utf-8'))
-						result['load_log'] = base64.b64encode(result['load_log'].encode('utf-8'))
-						result['check_log'] = base64.b64encode(result['check_log'].encode('utf-8'))
-						result['check_diff'] = base64.b64encode(result['check_diff'].encode('utf-8'))
+					if (status == 200):
+						logging.info("POST OK : UUID='%(uuid)s' install=%(install)s load=%(load)s check=%(check)s" % {'uuid' : reason['uuid'], 'install' : result['install'], 'load' : result['load'], 'check' : result['check']})
+					else:
+						logging.error(reason)
+						logging.error("POST for %(dist)s-%(version)s failed (status = %(status)d)" % {'dist' : dist['name'], 'version' : version['version'], 'status' : status})
 
-						# sign the request with the shared secret
-						result = sign_request(result, args.secret)
+				except Exception as ex:
 
-						# do the POST request (if OK, status is 200)
-						(status, reason) = post_results(api_host, templates, result)
+					logging.info("testing failed: %(msg)s" % {'msg' : str(ex)})
+					logging.exception(ex)
 
-						if (status == 200):
-							logging.info("POST OK : UUID='%(uuid)s' install=%(install)s load=%(load)s check=%(check)s" % {'uuid' : reason['uuid'], 'install' : result['install'], 'load' : result['load'], 'check' : result['check']})
-						else:
-							logging.error(reason)
-							logging.error("POST for %(dist)s-%(version)s failed (status = %(status)d)" % {'dist' : dist['name'], 'version' : version['version'], 'status' : status})
+				finally:
 
-					except Exception as ex:
+					# stop the PostgreSQL cluster and remove the data directory
+					if cluster:
+						logging.info("removing DATA directory")
+						cluster.terminate()
 
-						logging.info("testing failed: %(msg)s" % {'msg' : str(ex)})
-						logging.exception(ex)
+			else:
 
-					finally:
-
-						# stop the PostgreSQL cluster and remove the data directory
-						if cluster:
-							logging.info("removing DATA directory")
-							cluster.terminate()
-
-				else:
-
-					logging.info("%(dist)s-%(version)s skipped - unmet PostgreSQL version (current %(pgversion)s, needs %(prereqs)s)" % {'dist' : dist['name'], 'version' : version['version'], 'prereqs' : prereqs, 'pgversion' : pgversion})
+				logging.info("%(dist)s-%(version)s skipped - unmet PostgreSQL version (current %(pgversion)s, needs %(prereqs)s)" % {'dist' : dist['name'], 'version' : version['version'], 'prereqs' : version['prereqs'], 'pgversion' : pgversion})
 
 
 	except Exception as ex:
